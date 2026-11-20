@@ -1,7 +1,7 @@
 // ENGRANE · utilidades comunes
 (function () {
   const ENG = (window.ENG = window.ENG || {});
-  ENG.VERSION = '2.1.0';
+  ENG.VERSION = '2.1.1';
   const TZ = 'America/Mexico_City';
 
   ENG.$ = (sel, root = document) => root.querySelector(sel);

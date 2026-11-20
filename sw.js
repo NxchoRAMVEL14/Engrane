@@ -1,6 +1,6 @@
 // ENGRANE · service worker: la app abre y funciona aunque no haya internet
 // Cada vez que subas cambios, sube también este archivo con un número de versión nuevo.
-const VERSION = 'engrane-v2.1.0';
+const VERSION = 'engrane-v2.1.1';
 const ARCHIVOS = [
   './', 'index.html', 'config.js', 'manifest.webmanifest', 'css/engrane.css',
   'js/util.js', 'js/apodos.js', 'js/api.js', 'js/progreso.js', 'js/figuras.js', 'js/motor.js',

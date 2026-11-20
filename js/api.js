@@ -211,6 +211,11 @@
         throw new Error(msg);
       }
       if (data && data.error) throw new Error(data.error);
+      // Si la función publicada no es la de Engrane (p. ej. se quedó el «Hello» de ejemplo de Supabase)
+      const esperado = { key: 'publicKey', invitar: 'ok', aviso: 'sent', test: 'sent' }[body.action];
+      if (esperado && (!data || typeof data !== 'object' || !(esperado in data))) {
+        throw new Error('La función «engrane» de Supabase no tiene el código de Engrane. Vuelve a pegar supabase/functions/engrane/index.ts completo y dale Deploy (LEEME, paso 3).');
+      }
       return data;
     },
     // Canal en tiempo real para la clase en vivo
