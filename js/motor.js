@@ -76,7 +76,7 @@
       const hoy = ENG.hoy();
       return ENG.barajar(
         ((estado && estado.estado) || [])
-          .filter((e) => e.m === mid && e.n <= hoy && ENG.Banco.preguntas[e.p])
+          .filter((e) => e.m === mid && e.n <= hoy && ENG.Banco.visible(e.p))
           .sort((a, b) => a.c - b.c || (a.n < b.n ? -1 : 1))
           .slice(0, n)
           .map((e) => ENG.Banco.preguntas[e.p])
@@ -102,7 +102,7 @@
 
   const NOMBRE_MODO = {
     practica: 'Práctica', reloj: 'Contra reloj', jefe: 'Jefe final', examen: 'Examen simulado',
-    repaso: 'Repaso de errores', diagnostico: 'Diagnóstico', mezcla: 'Clase mezclada', memorama: 'Memorama', leccion: 'Lección'
+    repaso: 'Repaso de errores', diagnostico: 'Diagnóstico', mezcla: 'Clase mezclada', memorama: 'Memorama', leccion: 'Lección', intensivo: 'Repaso intensivo'
   };
   ENG.NOMBRE_MODO = NOMBRE_MODO;
 
@@ -410,7 +410,9 @@
         ${ok ? '' : `<p class="retro-resp">Respuesta: <b>${formatear(respuestaCorrecta(p))}</b></p>`}
         ${p.exp ? `<p>${formatear(p.exp)}</p>` : ''}
         <button class="btn ${ok ? 'pri' : 'osc'} ancho" id="r-sig">Continuar</button>
+        ${ENG.Reportes ? ENG.Reportes.boton() : ''}
       </div>`;
+    if (ENG.Reportes) ENG.Reportes.conectar(p, retro);
     const b = document.getElementById('r-sig');
     b.onclick = siguiente;
     setTimeout(() => b.scrollIntoView({ behavior: 'smooth', block: 'end' }), 60);
@@ -514,13 +516,15 @@
             return `<div class="card error-item"><p>${formatear(p.q)}</p>
               ${r.dada != null ? `<p class="tu-resp">Tu respuesta: ${esc(r.dada)}</p>` : ''}
               <p class="ok-resp">Correcta: <b>${formatear(respuestaCorrecta(p))}</b></p>
-              ${p.exp ? `<p class="exp">${formatear(p.exp)}</p>` : ''}</div>`;
+              ${p.exp ? `<p class="exp">${formatear(p.exp)}</p>` : ''}
+              ${ENG.Reportes && ENG.Reportes.puede() ? `<button class="link-reportar" data-reportar="${esc(p.id)}">⚑ Reportar error en esta pregunta</button>` : ''}</div>`;
           }).join('')}` : ''}
         <div class="botonera">
           <button class="btn pri" id="res-otra">↻ Otra vez</button>
           <button class="btn sec" id="res-volver">Volver</button>
         </div>
       </section>`;
+    document.querySelectorAll('[data-reportar]').forEach((b) => (b.onclick = () => ENG.Reportes.abrir(ENG.Banco.preguntas[b.dataset.reportar], b)));
     document.getElementById('res-otra').onclick = () => S.repetir && S.repetir();
     document.getElementById('res-volver').onclick = () => {
       S = null;

@@ -4,12 +4,13 @@
 //  - test:     notificación de prueba al celular que la pide (body.endpoint).
 //  - aviso:    un maestro manda un aviso a alumnos y/o papás (requiere sesión de maestro).
 //  - invitar:  el admin invita a un maestro por correo (requiere sesión de admin).
+//  - crear_maestro: el admin crea la cuenta de un maestro con contraseña temporal (sin correo).
 //  - cron:     recordatorios automáticos; la llama pg_cron cada 15 min (sql/engrane_notificaciones.sql).
 // Mismo patrón que las funciones «avisos» y «recordatorios» de Remate.
 import webpush from 'npm:web-push@3.6.7';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const VERSION = '2.0.0';
+const VERSION = '2.2.0';
 const TZ = 'America/Mexico_City';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -76,7 +77,7 @@ Deno.serve(async (req) => {
       return json(await enviar(s, { title: 'Engrane ⚙', body: '¡Listo! Las notificaciones funcionan en este celular.', url: './#/inicio' }, 600));
     }
 
-    if (body.action === 'aviso' || body.action === 'invitar') {
+    if (body.action === 'aviso' || body.action === 'invitar' || body.action === 'crear_maestro') {
       const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
       const { data: au } = await admin.auth.getUser(token);
       const user = au?.user;
@@ -98,6 +99,42 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      if (body.action === 'crear_maestro') {
+        if (perfil.rol !== 'admin') return json({ error: 'Solo el administrador puede crear cuentas.' }, 403);
+        const correo = String(body.correo || '').trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) return json({ error: 'Correo no válido.' }, 400);
+        const materias = Array.isArray(body.materias) ? body.materias.map(String).slice(0, 12) : [];
+        const nombre = String(body.nombre || '').slice(0, 80);
+        // Contraseña temporal fácil de dictar: Engrane-XXXX-99
+        const letras = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+        const rnd = crypto.getRandomValues(new Uint32Array(6));
+        const password = `Engrane-${[0, 1, 2, 3].map((i) => letras[rnd[i] % letras.length]).join('')}-${10 + (rnd[4] % 90)}`;
+        const meta = { nombre, materias, temporal: true };
+        // ¿Ya existe? (p. ej. una invitación por correo que nunca llegó)
+        let existente: Row | null = null;
+        for (let page = 1; page <= 20 && !existente; page++) {
+          const { data: lista, error: e1 } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+          if (e1) return json({ error: e1.message }, 400);
+          existente = (lista?.users || []).find((u: Row) => (u.email || '').toLowerCase() === correo) || null;
+          if (!lista?.users?.length || lista.users.length < 200) break;
+        }
+        let id: string;
+        if (existente) {
+          if (existente.id === user.id) return json({ error: 'Esa es tu propia cuenta.' }, 400);
+          const { error: e2 } = await admin.auth.admin.updateUserById(existente.id, { password, email_confirm: true, user_metadata: { ...(existente.user_metadata || {}), ...meta } });
+          if (e2) return json({ error: e2.message }, 400);
+          id = existente.id;
+        } else {
+          const { data: nuevo, error: e3 } = await admin.auth.admin.createUser({ email: correo, password, email_confirm: true, user_metadata: meta });
+          if (e3) return json({ error: e3.message }, 400);
+          id = nuevo.user.id;
+        }
+        const { data: yaPerfil } = await admin.from('eng_perfiles').select('rol').eq('id', id).maybeSingle();
+        const rol = yaPerfil?.rol === 'admin' ? 'admin' : 'maestro';
+        await admin.from('eng_perfiles').upsert({ id, nombre, correo, rol, materias, materias_solicitadas: materias }, { onConflict: 'id' });
+        return json({ ok: true, password, nuevo: !existente });
+      }
+
       // aviso
       const materia = body.materia ? String(body.materia) : null;
       if (perfil.rol === 'maestro' && (!materia || !(perfil.materias || []).includes(materia))) return json({ error: 'No tienes esa materia.' }, 403);
@@ -113,6 +150,8 @@ Deno.serve(async (req) => {
     if (body.action === 'cron' || body.source === 'cron') {
       const { fecha, hora, dow } = ahora();
       const ayer = sumarDias(fecha, -1), manana = sumarDias(fecha, 1);
+      // Latido: actividad en la base para que el proyecto gratis no se pause
+      await admin.rpc('eng_latido');
       const { data: subs } = await admin.from('eng_push_subs').select('*');
       if (!subs?.length) return json({ ok: true, nota: 'Nadie ha activado notificaciones todavía.' });
       const { data: als } = await admin.from('eng_alumnos').select('id, nombre, apodo, materias').eq('activo', true);
@@ -151,6 +190,29 @@ Deno.serve(async (req) => {
             if (!s.length || !(await reclamar(`mision|${m.id}|${a.id}`))) continue;
             const r = await enviar(s, { title: '🎯 Tu misión vence mañana', body: m.titulo, url: './#/inicio' }, 60 * 60 * 12);
             out.push({ tipo: 'mision', alumno: a.id, ...r });
+          }
+        }
+      }
+
+      // 2b) Exámenes en 3 días y mañana (4 a 8 pm): alumno y papás
+      if (hora >= 16 && hora < 20) {
+        const en3 = sumarDias(fecha, 3);
+        const { data: exs } = await admin.from('eng_examenes').select('*').in('fecha', [manana, en3]);
+        for (const e of exs || []) {
+          const cuando = e.fecha === manana ? 'mañana' : 'en 3 días';
+          for (const a of als || []) {
+            if (!(a.materias || []).includes(e.materia)) continue;
+            if (Array.isArray(e.alumnos) && e.alumnos.length && !e.alumnos.includes(a.id)) continue;
+            const sa = subsDe(a.id, 'alumno');
+            if (sa.length && (await reclamar(`examen|${e.id}|${a.id}|${e.fecha === manana ? 1 : 3}`))) {
+              const r = await enviar(sa, { title: `📅 Examen ${cuando}`, body: `${e.titulo}. Entra a tu Repaso intensivo: 10 minutos hoy cuentan.`, url: './#/inicio' }, 60 * 60 * 12);
+              out.push({ tipo: 'examen', alumno: a.id, ...r });
+            }
+            const sp = subsDe(a.id, 'papas');
+            if (e.fecha === manana && sp.length && (await reclamar(`examen-papas|${e.id}|${a.id}`))) {
+              const r = await enviar(sp, { title: '📅 Examen mañana', body: `${primerNombre(a.nombre)} tiene «${e.titulo}» mañana. Un repaso hoy en Engrane le ayuda.`, url: './#/inicio' }, 60 * 60 * 12);
+              out.push({ tipo: 'examen-papas', alumno: a.id, ...r });
+            }
           }
         }
       }

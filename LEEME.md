@@ -1,4 +1,4 @@
-# ⚙️ Engrane · v2.1.0 (Fases 1, 2 y 3)
+# ⚙️ Engrane · v2.2.0 (Fases 1, 2, 3 y tanda 1)
 
 App de práctica para los alumnos que tú elijas del CETAC 19: lecciones, juegos, exámenes simulados,
 niveles, misiones, avisos, notificaciones y **clase en vivo por equipos**, con las **6 materias de
@@ -8,6 +8,24 @@ niveles, misiones, avisos, notificaciones y **clase en vivo por equipos**, con l
 > No lee ni escribe nada de Escuadra ni de Remate.
 
 ---
+
+## 🆕 Actualizar a v2.2 (tanda 1) · 10 min
+
+1. **SQL Editor** → pega TODO `sql/engrane.sql` → **Run** (agrega lo nuevo, no borra nada).
+2. **Edge Functions → engrane → Code** → pega TODO `supabase/functions/engrane/index.ts` → **Deploy**
+   (revisa que «Verify JWT» siga apagado).
+3. **GitHub**: sube los archivos que cambiaron (`index.html`, `sw.js`, `css/`, `js/`, `contenido/catalogo.js`).
+4. **Latido desde GitHub** (recomendado para vacaciones): en tu repositorio → **Add file → Create new file** →
+   nombre `.github/workflows/latido.yml` → pega el contenido de ese archivo → **Commit**.
+   Pruébalo en **Actions → Latido Engrane → Run workflow** (debe salir ✅ verde).
+
+**Qué trae:**
+- 🔑 **Maestros sin correo**: «Crear cuenta» genera una contraseña temporal que mandas por WhatsApp; al entrar, el maestro pone la suya.
+- ⚑ **Reportar preguntas**: alumnos y maestros marcan errores; tú los ves en ⚑ Reportes, puedes **ocultar** la pregunta para todos y copiar los reportes para corregirlos.
+- 📅 **Exámenes**: fecha, parcial y temas; los alumnos ven cuenta regresiva y **Repaso intensivo** (prioriza sus temas flojos y sus errores); notificación 3 días y 1 día antes (también a papás).
+- ⚡ **Hoy te toca**: el repaso del examen aparece primero y se marca ✔ al hacerlo.
+- 💾 **Respaldo**: descarga todo en un archivo (y restaurar). El panel te recuerda si pasaron 7 días.
+- 🫀 **Latido**: la app, los recordatorios automáticos y GitHub mantienen activo el proyecto gratis.
 
 ## 1. Crear el proyecto de Supabase · 5 min
 
@@ -59,8 +77,10 @@ canales públicos (que no esté en «Private channels only»).
 3. En **🔑 Accesos** de cada alumno manda por **WhatsApp** su enlace (y el de los papás).
 4. Pide que hagan primero el **Diagnóstico** y que activen las **🔔 notificaciones**
    (en iPhone hay que instalar la app primero: Compartir → «Agregar a inicio»).
-5. **Otros maestros**: en **👩‍🏫 Maestros → Invitar** escribes su correo y materias y les llega una
-   invitación. O ellos se registran en «Crear cuenta», quedan «pendientes» y tú los apruebas.
+5. **Otros maestros**: en **👩‍🏫 Maestros → Crear cuenta** escribes su correo y materias; Engrane te da una
+   contraseña temporal para mandarla por WhatsApp. (El correo de invitación de Supabase solo llega a los
+   miembros de tu equipo de Supabase, máximo 2 por hora).
+6. **Cada semana**: 💾 Respaldo → Descargar, y guarda el archivo en tu Drive.
 
 ## 6. Probar sin Supabase (modo demo)
 
@@ -116,6 +136,8 @@ viendo» (no cuenta para el alumno).
 | `sql/engrane_notificaciones.sql` | Recordatorios automáticos cada 15 min (ya lleno) |
 | `supabase/functions/engrane/index.ts` | Función de notificaciones e invitaciones |
 | `img/` | Logo e íconos (tu ícono de Gemini) |
+| `.github/workflows/latido.yml` | Latido cada 2 días desde GitHub para que Supabase no pause el proyecto |
+| `js/tanda1.js` | Reportes, exámenes, repaso intensivo, respaldo y latido |
 | `sw.js`, `manifest.webmanifest` | Instalar como app y funcionar sin internet |
 
 **Fuentes del contenido**: SEP · MCCEMS Modelo Educativo 2025 (programas de Inglés III, Lengua y

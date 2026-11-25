@@ -28,6 +28,7 @@
       .map((m) => ({ m, s: ENG.Progreso.sugerencia(an, m) }))
       .filter((x) => x.s);
     const insLog = an.insignias.filter((x) => x.logrado);
+    const planEx = ENG.Examenes.planItems(estado).filter((x) => ENG.MATERIAS[x.m]);
     app().innerHTML = `
       ${bannerPrueba()}
       <section class="hero card">
@@ -47,9 +48,13 @@
       </div>
       <div id="i-vivo"></div>
       ${ENG.ctx.prueba ? '' : ENG.Avisos.banner(estado, 'alumnos')}
+      ${ENG.Examenes.tarjetas(estado)}
       ${ENG.Misiones.tarjetas(estado)}
 
-      ${sugerencias.length ? `<h3 class="sec-tit">Hoy te toca</h3>
+      ${sugerencias.length || planEx.length ? `<h3 class="sec-tit">Hoy te toca</h3>
+        ${planEx.map((x) => `<button class="card sug ${x.hecho ? 'hecho' : ''}" data-m="${x.m}" data-tipo="intensivo" data-ex="${x.id}">
+          <span class="sug-ico" style="background:${ENG.MATERIAS[x.m].color}">${x.hecho ? '✔' : '⚡'}</span>
+          <span><small>${esc(ENG.MATERIAS[x.m].nombre)}${x.hecho ? ' · hecho hoy' : ''}</small><b>${esc(x.texto)}</b></span><span class="flecha">›</span></button>`).join('')}
         ${sugerencias.map(({ m, s }) => `<button class="card sug" data-m="${m}" data-tipo="${s.tipo}" data-tema="${s.tema ? s.tema.id : ''}">
           <span class="sug-ico" style="background:${ENG.MATERIAS[m].color}">${ENG.MATERIAS[m].icono}</span>
           <span><small>${esc(ENG.MATERIAS[m].nombre)}</small><b>${esc(s.texto)}</b></span><span class="flecha">›</span></button>`).join('')}` : ''}
@@ -69,6 +74,7 @@
     conectarBanner();
     ENG.Avisos.conectar(app());
     ENG.Misiones.conectar(app(), estado);
+    ENG.Examenes.conectar(app());
     const bc = document.getElementById('ir-clase');
     if (ENG.ctx.prueba || ENG.ctx.rol !== 'alumno') bc.remove();
     else {
@@ -80,6 +86,7 @@
     app().querySelectorAll('.sug').forEach((b) => {
       b.onclick = () => {
         const { m, tipo, tema } = b.dataset;
+        if (tipo === 'intensivo') return ENG.Examenes.intensivo(+b.dataset.ex);
         if (tipo === 'repaso') return iniciarRepaso(m);
         if (tipo === 'examen') return elegirExamen(m);
         if (tipo === 'jefe') return iniciarJefe(ENG.Banco.temas[tema]);

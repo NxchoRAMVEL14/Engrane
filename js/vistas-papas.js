@@ -116,6 +116,7 @@
         <button class="btn pri grande" id="p-probar">▶ Prueba lo que tu hijo está viendo</button>
       </section>
       ${ENG.Avisos.banner(estado, 'papas')}
+      ${ENG.Examenes.tarjetas(estado, { papas: true })}
       ${reporteHTML(estado, an, { para: 'papas' })}
       <div id="p-push"></div>
       <div class="botonera"><button class="btn sec" id="p-ranking">🏁 Ver ranking</button><button class="btn fant" id="p-act">↻ Actualizar</button></div>`;

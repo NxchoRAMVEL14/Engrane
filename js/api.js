@@ -17,6 +17,7 @@
     YA_GUARDADA: 'Los resultados de esta clase ya se guardaron.',
     DATOS_INVALIDOS: 'Revisa los datos de la pregunta.',
     SUSCRIPCION_INVALIDA: 'No se pudo registrar este celular.',
+    DEMASIADOS: 'Ya mandaste muchos reportes hoy. ¡Gracias! Mañana puedes mandar más.',
     'Invalid login credentials': 'Correo o contraseña incorrectos.',
     'Email not confirmed': 'Falta confirmar tu correo: revisa tu bandeja (y spam).',
     'User already registered': 'Ese correo ya tiene cuenta. Usa "Entrar".'
@@ -200,6 +201,32 @@
     pushGuardarMaestro: (sub) => rpc('eng_push_guardar_maestro', { p_sub: sub }),
     pushQuitar: (endpoint) => rpc('eng_push_quitar', { p_endpoint: endpoint }),
     pushResumen: () => rpc('eng_push_resumen'),
+
+    // ── Tanda 1 (v2.2) ──
+    latido: () => rpc('eng_latido').catch(() => null),
+    sistemaEstado: () => rpc('eng_sistema_estado'),
+    respaldo: () => rpc('eng_respaldo'),
+    restaurar: (datos) => rpc('eng_restaurar', { p: datos }),
+    examenesListar: () => rpc('eng_examenes_listar'),
+    examenGuardar: (e) => rpc('eng_examen_guardar', { p_id: e.id || null, p_materia: e.materia, p_titulo: e.titulo, p_fecha: e.fecha, p_parcial: e.parcial || null, p_temas: e.temas || [], p_nota: e.nota || '', p_alumnos: e.alumnos || [] }),
+    examenBorrar: (id) => rpc('eng_examen_borrar', { p_id: id }),
+    reporteCrear: (r) => rpc('eng_reporte_crear', { p_codigo: r.codigo || null, p_pregunta: r.pregunta, p_materia: r.materia, p_tema: r.tema || '', p_motivo: r.motivo, p_texto: r.texto || '' }),
+    reportesListar: () => rpc('eng_reportes_listar'),
+    reporteResolver: (pregunta, resuelto) => rpc('eng_reporte_resolver', { p_pregunta: pregunta, p_resuelto: resuelto !== false }),
+    preguntaOcultar: (pregunta, materia, ocultar, motivo) => rpc('eng_pregunta_ocultar', { p_pregunta: pregunta, p_materia: materia, p_ocultar: ocultar !== false, p_motivo: motivo || '' }),
+    ocultas: () => rpc('eng_ocultas'),
+    // ¿La cuenta del maestro trae contraseña temporal? (la crea el admin)
+    async contrasenaTemporal() {
+      if (modo === 'demo' || !sb) return false;
+      const { data } = await sb.auth.getUser();
+      return !!(data && data.user && data.user.user_metadata && data.user.user_metadata.temporal);
+    },
+    async cambiarContrasena(pass) {
+      if (modo === 'demo') return true;
+      const { error } = await sb.auth.updateUser({ password: pass, data: { temporal: false } });
+      if (error) throw traducir(error);
+      return true;
+    },
     // Función del servidor «engrane» (notificaciones e invitaciones)
     async funcion(body) {
       if (modo === 'demo') return Demo.funcion(body);
@@ -212,7 +239,7 @@
       }
       if (data && data.error) throw new Error(data.error);
       // Si la función publicada no es la de Engrane (p. ej. se quedó el «Hello» de ejemplo de Supabase)
-      const esperado = { key: 'publicKey', invitar: 'ok', aviso: 'sent', test: 'sent' }[body.action];
+      const esperado = { key: 'publicKey', invitar: 'ok', crear_maestro: 'password', aviso: 'sent', test: 'sent' }[body.action];
       if (esperado && (!data || typeof data !== 'object' || !(esperado in data))) {
         throw new Error('La función «engrane» de Supabase no tiene el código de Engrane. Vuelve a pegar supabase/functions/engrane/index.ts completo y dale Deploy (LEEME, paso 3).');
       }
@@ -297,6 +324,7 @@
         xp_total: d.intentos.filter((i) => i.alumno_id === a.id).reduce((s, i) => s + i.xp, 0),
         misiones: tabla(d, 'misiones').filter((m) => a.materias.includes(m.materia) && (!m.alumnos || !m.alumnos.length || m.alumnos.includes(a.id)) && m.fecha_limite >= ENG.sumarDias(ENG.hoy(), -21)),
         avisos: tabla(d, 'avisos').filter((v) => v.hasta >= ENG.hoy() && (!v.materia || a.materias.includes(v.materia)) && (!v.alumnos || !v.alumnos.length || v.alumnos.includes(a.id))).slice(-10).reverse(),
+        examenes: tabla(d, 'examenes').filter((e) => a.materias.includes(e.materia) && (!e.alumnos || !e.alumnos.length || e.alumnos.includes(a.id)) && e.fecha >= ENG.sumarDias(ENG.hoy(), -1)).sort((x, y) => (x.fecha < y.fecha ? -1 : 1)),
         hoy: ENG.hoy()
       };
     }
@@ -470,6 +498,60 @@
         guardar(d);
         return { ok: true, guardados: n };
       },
+      // Tanda 1 (v2.2)
+      eng_latido: () => { const d = db(); d.latido = (d.latido || 0) + 1; guardar(d); return { ok: true, n: d.latido }; },
+      eng_sistema_estado: () => { const d = db(); return d.respaldo ? { respaldo: { actualizado: d.respaldo } } : {}; },
+      eng_respaldo: () => {
+        const d = db();
+        d.respaldo = new Date().toISOString();
+        guardar(d);
+        return { engrane: 'respaldo', version: 1, fecha: d.respaldo, eng_alumnos: d.alumnos, eng_intentos: d.intentos, eng_examenes: tabla(d, 'examenes'), demo: true };
+      },
+      eng_restaurar: ({ p }) => {
+        if (!p || p.engrane !== 'respaldo') err('DATOS_INVALIDOS');
+        const d = db();
+        let n = 0;
+        (p.eng_alumnos || []).forEach((a) => { if (!d.alumnos.find((x) => x.id === a.id || x.codigo === a.codigo)) { d.alumnos.push(a); n++; } });
+        (p.eng_intentos || []).forEach((i) => { if (!d.intentos.find((x) => x.id === i.id) && d.alumnos.find((a) => a.id === i.alumno_id)) d.intentos.push(i); });
+        guardar(d);
+        return { alumnos: n };
+      },
+      eng_examenes_listar: () => tabla(db(), 'examenes').filter((e) => e.fecha >= ENG.sumarDias(ENG.hoy(), -30)).map((e) => ({ ...e, mio: true })).sort((x, y) => (x.fecha < y.fecha ? -1 : 1)),
+      eng_examen_guardar: (p) => {
+        if (!String(p.p_titulo || '').trim()) err('FALTA_TITULO');
+        if (!p.p_fecha) err('DATOS_INVALIDOS');
+        const d = db();
+        const e = { id: p.p_id || d.seq++, materia: p.p_materia, titulo: p.p_titulo.trim(), fecha: p.p_fecha, parcial: p.p_parcial || null, temas: p.p_temas || [], nota: p.p_nota || '', alumnos: p.p_alumnos && p.p_alumnos.length ? p.p_alumnos : null, creado: new Date().toISOString() };
+        const l = tabla(d, 'examenes');
+        const i = l.findIndex((x) => x.id === e.id);
+        if (i >= 0) l[i] = e; else l.push(e);
+        guardar(d);
+        return e;
+      },
+      eng_examen_borrar: ({ p_id }) => { const d = db(); d.examenes = tabla(d, 'examenes').filter((x) => x.id !== p_id); guardar(d); return { ok: true }; },
+      eng_reporte_crear: (p) => {
+        const d = db();
+        const a = p.p_codigo ? porCodigo(p.p_codigo) || err('CODIGO_INVALIDO') : null;
+        const l = tabla(d, 'reportes');
+        if (l.find((r) => r.pregunta === p.p_pregunta && !r.resuelto && (a ? r.alumno_id === a.id : !r.alumno_id))) return { ok: true, repetido: true };
+        l.push({ id: d.seq++, pregunta: p.p_pregunta, materia: p.p_materia, tema: p.p_tema || null, motivo: p.p_motivo, texto: p.p_texto || '', alumno_id: a ? a.id : null, quien: a ? a.apodo : 'Profe Demo', resuelto: false, creado: new Date().toISOString() });
+        guardar(d);
+        return { ok: true };
+      },
+      eng_reportes_listar: () => {
+        const d = db();
+        const oc = tabla(d, 'ocultas');
+        return tabla(d, 'reportes').slice().reverse().sort((x, y) => x.resuelto - y.resuelto).map((r) => ({ ...r, oculta: oc.some((o) => o.pregunta === r.pregunta) }));
+      },
+      eng_reporte_resolver: ({ p_pregunta, p_resuelto }) => { const d = db(); tabla(d, 'reportes').forEach((r) => r.pregunta === p_pregunta && (r.resuelto = p_resuelto !== false)); guardar(d); return { ok: true }; },
+      eng_pregunta_ocultar: ({ p_pregunta, p_materia, p_ocultar, p_motivo }) => {
+        const d = db();
+        d.ocultas = tabla(d, 'ocultas').filter((o) => o.pregunta !== p_pregunta);
+        if (p_ocultar !== false) d.ocultas.push({ pregunta: p_pregunta, materia: p_materia, motivo: p_motivo || '' });
+        guardar(d);
+        return { ok: true };
+      },
+      eng_ocultas: () => tabla(db(), 'ocultas').map((o) => o.pregunta),
       eng_push_guardar: () => ({ ok: true }),
       eng_push_guardar_maestro: () => ({ ok: true }),
       eng_push_quitar: () => ({ ok: true }),
@@ -502,6 +584,12 @@
         if (body.action === 'key') return { publicKey: '' };
         if (body.action === 'aviso') return { sent: 0, failed: 0, removed: 0, demo: true };
         if (body.action === 'invitar') return { ok: true, demo: true };
+        if (body.action === 'crear_maestro') {
+          const d = db();
+          if (!d.perfiles.find((x) => x.correo === body.correo)) d.perfiles.push({ id: uuid(), nombre: body.nombre || '', correo: body.correo, rol: 'maestro', materias: body.materias || [], materias_solicitadas: body.materias || [], creado: new Date().toISOString() });
+          guardar(d);
+          return { ok: true, demo: true, password: 'Engrane-' + cod().slice(0, 4), nuevo: true };
+        }
         return { ok: true, demo: true };
       },
       async rpc(nombre, params) {

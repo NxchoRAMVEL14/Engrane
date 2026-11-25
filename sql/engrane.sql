@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════
---  ENGRANE · Base de datos completa (Fases 1, 2 y 3)
+--  ENGRANE · Base de datos completa (Fases 1, 2, 3 y tanda 1 · v2.2)
 --  Pega TODO este archivo en tu proyecto de Supabase de Engrane → SQL Editor → Run.
 --  Se puede correr varias veces sin romper nada (es idempotente): si ya
 --  corriste la versión de la Fase 1, solo agrega lo nuevo.
@@ -151,6 +151,54 @@ create table if not exists public.eng_recordatorios (
   clave text primary key, enviado timestamptz not null default now(), n int not null default 0
 );
 
+
+-- ─────────── Tanda 1 (v2.2): exámenes, reportes, sistema ───────────
+-- Calendario de exámenes (lo pone cada maestro para su materia)
+create table if not exists public.eng_examenes (
+  id          bigserial primary key,
+  materia     text not null,
+  titulo      text not null,
+  fecha       date not null,
+  parcial     int check (parcial between 1 and 3),
+  temas       text[] not null default '{}',     -- vacío = toda la materia
+  nota        text not null default '',
+  alumnos     uuid[],                           -- vacío = todos los que llevan la materia
+  creado_por  uuid references public.eng_perfiles(id) on delete set null,
+  creado      timestamptz not null default now()
+);
+-- Reportes de preguntas con error (de alumnos o maestros)
+create table if not exists public.eng_reportes (
+  id         bigserial primary key,
+  pregunta   text not null,
+  materia    text not null,
+  tema       text,
+  motivo     text not null,
+  texto      text not null default '',
+  alumno_id  uuid references public.eng_alumnos(id) on delete set null,
+  perfil_id  uuid references public.eng_perfiles(id) on delete set null,
+  resuelto   boolean not null default false,
+  creado     timestamptz not null default now()
+);
+create index if not exists eng_reportes_idx on public.eng_reportes (resuelto, creado desc);
+-- Preguntas ocultas para todos mientras se corrigen
+create table if not exists public.eng_preguntas_ocultas (
+  pregunta  text primary key,
+  materia   text not null,
+  motivo    text not null default '',
+  por       uuid references public.eng_perfiles(id) on delete set null,
+  creado    timestamptz not null default now()
+);
+-- Datos del sistema: último latido y último respaldo
+create table if not exists public.eng_sistema (
+  clave       text primary key,
+  valor       jsonb not null default '{}'::jsonb,
+  actualizado timestamptz not null default now()
+);
+alter table public.eng_examenes          enable row level security;
+alter table public.eng_reportes          enable row level security;
+alter table public.eng_preguntas_ocultas enable row level security;
+alter table public.eng_sistema           enable row level security;
+
 -- ─────────────────────────── SEGURIDAD (RLS) ───────────────────────────
 -- Solo el admin lee/escribe directo en las tablas. Todo lo demás pasa por
 -- funciones que revisan el código del alumno/papá o el rol del maestro.
@@ -233,7 +281,8 @@ $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['eng_perfiles','eng_alumnos','eng_intentos','eng_preguntas_estado','eng_calificaciones','eng_misiones','eng_avisos','eng_preguntas_extra','eng_salas','eng_push_subs'] loop
+  foreach t in array array['eng_perfiles','eng_alumnos','eng_intentos','eng_preguntas_estado','eng_calificaciones','eng_misiones','eng_avisos','eng_preguntas_extra','eng_salas','eng_push_subs',
+                           'eng_examenes','eng_reportes','eng_preguntas_ocultas','eng_sistema'] loop
     execute format('drop policy if exists eng_admin_todo on public.%I', t);
     execute format('create policy eng_admin_todo on public.%I for all to authenticated using (public.eng_es_admin()) with check (public.eng_es_admin())', t);
   end loop;
@@ -281,6 +330,12 @@ language sql stable security definer set search_path = public as $$
                  where v.hasta >= eng__hoy() and (v.materia is null or v.materia = any(a.materias))
                    and (v.alumnos is null or cardinality(v.alumnos) = 0 or a.id = any(v.alumnos))
                  order by v.creado desc limit 10) v), '[]'::jsonb),
+    'examenes', coalesce((
+        select jsonb_agg(jsonb_build_object('id', e.id, 'materia', e.materia, 'titulo', e.titulo, 'fecha', e.fecha,
+                         'parcial', e.parcial, 'temas', e.temas, 'nota', e.nota) order by e.fecha)
+          from eng_examenes e
+         where e.materia = any(a.materias) and (e.alumnos is null or cardinality(e.alumnos) = 0 or a.id = any(e.alumnos))
+           and e.fecha >= eng__hoy() - 1 and (p_materias is null or e.materia = any(p_materias))), '[]'::jsonb),
     'hoy', eng__hoy()
   )
   from eng_alumnos a where a.id = p_id
@@ -804,6 +859,214 @@ begin
             select alumno_id, count(*) as n from eng_push_subs group by alumno_id) t), '{}'::jsonb);
 end $$;
 
+
+-- ─────────────────────────── TANDA 1 (v2.2) ───────────────────────────
+
+-- Latido: mantiene despierto el proyecto gratis de Supabase (lo llaman la app, el cron y GitHub)
+create or replace function public.eng_latido() returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare v int;
+begin
+  insert into eng_sistema (clave, valor, actualizado) values ('latido', jsonb_build_object('n', 1), now())
+  on conflict (clave) do update set valor = jsonb_build_object('n', coalesce((eng_sistema.valor->>'n')::int, 0) + 1), actualizado = now()
+  returning (valor->>'n')::int into v;
+  return jsonb_build_object('ok', true, 'n', v, 'hora', now());
+end $$;
+
+-- Estado del sistema para el admin (último latido y último respaldo)
+create or replace function public.eng_sistema_estado() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not eng_es_admin() then raise exception 'SIN_ACCESO'; end if;
+  return coalesce((select jsonb_object_agg(clave, jsonb_build_object('valor', valor, 'actualizado', actualizado)) from eng_sistema), '{}'::jsonb);
+end $$;
+
+-- Respaldo completo (solo admin). Devuelve todo en un JSON que se descarga desde la app.
+create or replace function public.eng_respaldo() returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare r jsonb;
+begin
+  if not eng_es_admin() then raise exception 'SIN_ACCESO'; end if;
+  r := jsonb_build_object(
+    'engrane', 'respaldo', 'version', 1, 'fecha', now(),
+    'eng_perfiles',          (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_perfiles x),
+    'eng_alumnos',           (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_alumnos x),
+    'eng_intentos',          (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_intentos x),
+    'eng_preguntas_estado',  (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_preguntas_estado x),
+    'eng_calificaciones',    (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_calificaciones x),
+    'eng_misiones',          (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_misiones x),
+    'eng_avisos',            (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_avisos x),
+    'eng_preguntas_extra',   (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_preguntas_extra x),
+    'eng_examenes',          (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_examenes x),
+    'eng_reportes',          (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_reportes x),
+    'eng_preguntas_ocultas', (select coalesce(jsonb_agg(to_jsonb(x)), '[]') from eng_preguntas_ocultas x));
+  insert into eng_sistema (clave, valor, actualizado) values ('respaldo', jsonb_build_object('alumnos', jsonb_array_length(r->'eng_alumnos')), now())
+  on conflict (clave) do update set valor = excluded.valor, actualizado = now();
+  return r;
+end $$;
+
+-- Restaurar un respaldo (solo admin). No borra nada: agrega lo que falte.
+-- Las cuentas de maestros no se restauran (viven en Supabase Auth): si un maestro no existe, su autoría queda vacía.
+create or replace function public.eng_restaurar(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare n jsonb := '{}'::jsonb; c int;
+begin
+  if not eng_es_admin() then raise exception 'SIN_ACCESO'; end if;
+  if coalesce(p->>'engrane', '') <> 'respaldo' then raise exception 'DATOS_INVALIDOS'; end if;
+
+  insert into eng_alumnos select * from jsonb_populate_recordset(null::eng_alumnos, coalesce(p->'eng_alumnos', '[]')) on conflict do nothing;
+  get diagnostics c = row_count; n := n || jsonb_build_object('alumnos', c);
+  insert into eng_intentos select x.* from jsonb_populate_recordset(null::eng_intentos, coalesce(p->'eng_intentos', '[]')) x
+    where exists (select 1 from eng_alumnos a where a.id = x.alumno_id) on conflict do nothing;
+  get diagnostics c = row_count; n := n || jsonb_build_object('intentos', c);
+  insert into eng_preguntas_estado select x.* from jsonb_populate_recordset(null::eng_preguntas_estado, coalesce(p->'eng_preguntas_estado', '[]')) x
+    where exists (select 1 from eng_alumnos a where a.id = x.alumno_id) on conflict do nothing;
+  insert into eng_calificaciones select x.* from jsonb_populate_recordset(null::eng_calificaciones, coalesce(p->'eng_calificaciones', '[]')) x
+    where exists (select 1 from eng_alumnos a where a.id = x.alumno_id) on conflict do nothing;
+  get diagnostics c = row_count; n := n || jsonb_build_object('calificaciones', c);
+
+  insert into eng_misiones (id, materia, tema, modo, meta, titulo, nota, alumnos, fecha_limite, creada_por, creado)
+  select x.id, x.materia, x.tema, x.modo, x.meta, x.titulo, x.nota, x.alumnos, x.fecha_limite,
+         (select id from eng_perfiles where id = x.creada_por), x.creado
+    from jsonb_populate_recordset(null::eng_misiones, coalesce(p->'eng_misiones', '[]')) x on conflict do nothing;
+  insert into eng_avisos (id, titulo, texto, materia, alumnos, para, hasta, autor, creado)
+  select x.id, x.titulo, x.texto, x.materia, x.alumnos, x.para, x.hasta, (select id from eng_perfiles where id = x.autor), x.creado
+    from jsonb_populate_recordset(null::eng_avisos, coalesce(p->'eng_avisos', '[]')) x on conflict do nothing;
+  insert into eng_preguntas_extra (id, materia, tema, datos, activo, autor, creado)
+  select x.id, x.materia, x.tema, x.datos, x.activo, (select id from eng_perfiles where id = x.autor), x.creado
+    from jsonb_populate_recordset(null::eng_preguntas_extra, coalesce(p->'eng_preguntas_extra', '[]')) x on conflict do nothing;
+  get diagnostics c = row_count; n := n || jsonb_build_object('preguntas', c);
+  insert into eng_examenes (id, materia, titulo, fecha, parcial, temas, nota, alumnos, creado_por, creado)
+  select x.id, x.materia, x.titulo, x.fecha, x.parcial, x.temas, x.nota, x.alumnos, (select id from eng_perfiles where id = x.creado_por), x.creado
+    from jsonb_populate_recordset(null::eng_examenes, coalesce(p->'eng_examenes', '[]')) x on conflict do nothing;
+  insert into eng_preguntas_ocultas (pregunta, materia, motivo, por, creado)
+  select x.pregunta, x.materia, x.motivo, (select id from eng_perfiles where id = x.por), x.creado
+    from jsonb_populate_recordset(null::eng_preguntas_ocultas, coalesce(p->'eng_preguntas_ocultas', '[]')) x on conflict do nothing;
+
+  -- que los contadores sigan después del número más alto
+  perform setval('eng_intentos_id_seq',        greatest(coalesce((select max(id) from eng_intentos), 0), 1));
+  perform setval('eng_calificaciones_id_seq',  greatest(coalesce((select max(id) from eng_calificaciones), 0), 1));
+  perform setval('eng_misiones_id_seq',        greatest(coalesce((select max(id) from eng_misiones), 0), 1));
+  perform setval('eng_avisos_id_seq',          greatest(coalesce((select max(id) from eng_avisos), 0), 1));
+  perform setval('eng_preguntas_extra_id_seq', greatest(coalesce((select max(id) from eng_preguntas_extra), 0), 1));
+  perform setval('eng_examenes_id_seq',        greatest(coalesce((select max(id) from eng_examenes), 0), 1));
+  return n;
+end $$;
+
+-- Calendario de exámenes
+create or replace function public.eng_examen_guardar(p_id bigint, p_materia text, p_titulo text, p_fecha date, p_parcial int,
+                                                     p_temas text[], p_nota text, p_alumnos uuid[])
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare e eng_examenes;
+begin
+  if not eng__puede_materia(p_materia) then raise exception 'SIN_ACCESO'; end if;
+  if coalesce(trim(p_titulo), '') = '' then raise exception 'FALTA_TITULO'; end if;
+  if p_fecha is null then raise exception 'DATOS_INVALIDOS'; end if;
+  if p_id is null then
+    insert into eng_examenes (materia, titulo, fecha, parcial, temas, nota, alumnos, creado_por)
+    values (p_materia, left(trim(p_titulo), 120), p_fecha, case when p_parcial between 1 and 3 then p_parcial end,
+            coalesce(p_temas, '{}'), left(coalesce(p_nota, ''), 500), case when cardinality(p_alumnos) > 0 then p_alumnos end, auth.uid())
+    returning * into e;
+  else
+    update eng_examenes set materia = p_materia, titulo = left(trim(p_titulo), 120), fecha = p_fecha,
+           parcial = case when p_parcial between 1 and 3 then p_parcial end, temas = coalesce(p_temas, '{}'),
+           nota = left(coalesce(p_nota, ''), 500), alumnos = case when cardinality(p_alumnos) > 0 then p_alumnos end
+     where id = p_id and (creado_por = auth.uid() or eng_es_admin()) returning * into e;
+    if not found then raise exception 'SIN_ACCESO'; end if;
+  end if;
+  return to_jsonb(e);
+end $$;
+
+create or replace function public.eng_examen_borrar(p_id bigint) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  delete from eng_examenes where id = p_id and (creado_por = auth.uid() or eng_es_admin());
+  if not found then raise exception 'SIN_ACCESO'; end if;
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.eng_examenes_listar() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare v_mat text[] := eng__mis_materias();
+begin
+  if not eng__es_staff() then raise exception 'SIN_ACCESO'; end if;
+  return coalesce((select jsonb_agg(to_jsonb(e) || jsonb_build_object('mio', e.creado_por = auth.uid()) order by e.fecha)
+                     from eng_examenes e
+                    where (v_mat is null or e.materia = any(v_mat)) and e.fecha >= eng__hoy() - 30), '[]'::jsonb);
+end $$;
+
+-- Reportar una pregunta (alumno con su código, o maestro con sesión)
+create or replace function public.eng_reporte_crear(p_codigo text, p_pregunta text, p_materia text, p_tema text, p_motivo text, p_texto text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare v_al uuid; v_pf uuid;
+begin
+  if nullif(trim(coalesce(p_codigo, '')), '') is not null then
+    select id into v_al from eng_alumnos where codigo = eng__norm(p_codigo) and activo;
+    if v_al is null then raise exception 'CODIGO_INVALIDO'; end if;
+    if (select count(*) from eng_reportes where alumno_id = v_al and creado > now() - interval '1 day') >= 20 then
+      raise exception 'DEMASIADOS';
+    end if;
+  elsif eng__es_staff() then
+    v_pf := auth.uid();
+  else
+    raise exception 'SIN_ACCESO';
+  end if;
+  if coalesce(p_pregunta, '') = '' or coalesce(p_materia, '') = '' then raise exception 'DATOS_INVALIDOS'; end if;
+  -- el mismo alumno no reporta dos veces la misma pregunta abierta
+  if exists (select 1 from eng_reportes where pregunta = p_pregunta and not resuelto
+               and ((v_al is not null and alumno_id = v_al) or (v_pf is not null and perfil_id = v_pf))) then
+    return jsonb_build_object('ok', true, 'repetido', true);
+  end if;
+  insert into eng_reportes (pregunta, materia, tema, motivo, texto, alumno_id, perfil_id)
+  values (left(p_pregunta, 60), left(p_materia, 40), nullif(left(coalesce(p_tema, ''), 40), ''), left(coalesce(p_motivo, 'otro'), 40),
+          left(coalesce(p_texto, ''), 500), v_al, v_pf);
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.eng_reportes_listar() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare v_mat text[] := eng__mis_materias();
+begin
+  if not eng__es_staff() then raise exception 'SIN_ACCESO'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'pregunta', r.pregunta, 'materia', r.materia, 'tema', r.tema,
+                     'motivo', r.motivo, 'texto', r.texto, 'resuelto', r.resuelto, 'creado', r.creado,
+                     'quien', coalesce(a.apodo, p.nombre, ''), 'oculta', exists (select 1 from eng_preguntas_ocultas o where o.pregunta = r.pregunta))
+                     order by r.resuelto, r.creado desc)
+                     from (select * from eng_reportes r where (v_mat is null or r.materia = any(v_mat))
+                            order by r.resuelto, r.creado desc limit 300) r
+                     left join eng_alumnos a on a.id = r.alumno_id
+                     left join eng_perfiles p on p.id = r.perfil_id), '[]'::jsonb);
+end $$;
+
+create or replace function public.eng_reporte_resolver(p_pregunta text, p_resuelto boolean) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare v_mat text;
+begin
+  select materia into v_mat from eng_reportes where pregunta = p_pregunta limit 1;
+  if v_mat is null or not eng__puede_materia(v_mat) then raise exception 'SIN_ACCESO'; end if;
+  update eng_reportes set resuelto = coalesce(p_resuelto, true) where pregunta = p_pregunta;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- Ocultar / mostrar una pregunta para todos
+create or replace function public.eng_pregunta_ocultar(p_pregunta text, p_materia text, p_ocultar boolean, p_motivo text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+begin
+  if not eng__puede_materia(p_materia) then raise exception 'SIN_ACCESO'; end if;
+  if coalesce(p_ocultar, true) then
+    insert into eng_preguntas_ocultas (pregunta, materia, motivo, por) values (left(p_pregunta, 60), p_materia, left(coalesce(p_motivo, ''), 200), auth.uid())
+    on conflict (pregunta) do update set motivo = excluded.motivo;
+  else
+    delete from eng_preguntas_ocultas where pregunta = p_pregunta;
+  end if;
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.eng_ocultas() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(pregunta), '[]'::jsonb) from eng_preguntas_ocultas
+$$;
+
 -- ─────────────────────────── PERMISOS ───────────────────────────
 
 grant usage on schema public to anon, authenticated;
@@ -871,6 +1134,39 @@ begin
     'eng_push_guardar_maestro(jsonb)', 'eng_push_resumen()'] loop
     execute format('revoke execute on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated', f);
+  end loop;
+end $$;
+
+
+-- Tanda 1 (v2.2)
+grant execute on function public.eng_latido()                                       to anon, authenticated;
+grant execute on function public.eng_ocultas()                                      to anon, authenticated;
+grant execute on function public.eng_reporte_crear(text, text, text, text, text, text) to anon, authenticated;
+do $$
+declare f text;
+begin
+  foreach f in array array[
+    'eng_sistema_estado()', 'eng_respaldo()', 'eng_restaurar(jsonb)',
+    'eng_examen_guardar(bigint, text, text, date, int, text[], text, uuid[])', 'eng_examen_borrar(bigint)', 'eng_examenes_listar()',
+    'eng_reportes_listar()', 'eng_reporte_resolver(text, boolean)', 'eng_pregunta_ocultar(text, text, boolean, text)'] loop
+    execute format('revoke execute on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated', f);
+  end loop;
+end $$;
+
+-- Función «engrane» (notificaciones, invitaciones, recordatorios): usa la llave de servidor (service_role).
+-- Los proyectos nuevos de Supabase (desde mayo 2026) ya no dan permisos automáticos a las tablas nuevas,
+-- así que se los damos explícitamente, solo a las tablas de Engrane.
+do $$
+declare t text;
+begin
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then return; end if;
+  execute 'grant usage on schema public to service_role';
+  for t in select tablename from pg_tables where schemaname = 'public' and tablename like 'eng\_%' loop
+    execute format('grant select, insert, update, delete on public.%I to service_role', t);
+  end loop;
+  for t in select sequencename from pg_sequences where schemaname = 'public' and sequencename like 'eng\_%' loop
+    execute format('grant usage, select, update on sequence public.%I to service_role', t);
   end loop;
 end $$;
 

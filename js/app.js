@@ -50,7 +50,7 @@
     const items = [];
     if (c.rol === 'alumno') items.push(['🏠 Inicio', '#/inicio'], ['🔴 Clase en vivo', '#/clase'], ['🏅 Insignias y niveles', '#/insignias'], ['🏁 Ranking', '#/ranking']);
     if (c.rol === 'papas') items.push(['📈 Reporte', '#/inicio'], ['🏁 Ranking', '#/ranking']);
-    if (c.rol === 'maestro') items.push(['👥 Alumnos', '#/inicio'], ['🔴 Clase en vivo', '#/m/clase'], ['🎯 Misiones', '#/m/misiones'], ['🔔 Recordatorios', '#/m/recordatorios'], ['📣 Avisos', '#/m/avisos'], ['✏️ Mis preguntas', '#/m/preguntas'], ['📚 Contenido', '#/m/contenido'], ...(c.perfil && c.perfil.rol === 'admin' ? [['📥 Importar', '#/m/importar'], ['👩‍🏫 Maestros', '#/m/maestros']] : []), ['🏁 Ranking', '#/ranking'], ['👤 Mi cuenta', '#/m/cuenta']);
+    if (c.rol === 'maestro') items.push(['👥 Alumnos', '#/inicio'], ['🔴 Clase en vivo', '#/m/clase'], ['🎯 Misiones', '#/m/misiones'], ['🔔 Recordatorios', '#/m/recordatorios'], ['📣 Avisos', '#/m/avisos'], ['📅 Exámenes', '#/m/examenes'], ['⚑ Reportes', '#/m/reportes'], ['✏️ Mis preguntas', '#/m/preguntas'], ['📚 Contenido', '#/m/contenido'], ...(c.perfil && c.perfil.rol === 'admin' ? [['📥 Importar', '#/m/importar'], ['👩‍🏫 Maestros', '#/m/maestros'], ['💾 Respaldo', '#/m/respaldo']] : []), ['🏁 Ranking', '#/ranking'], ['👤 Mi cuenta', '#/m/cuenta']);
     const md = ENG.modal({
       clase: 'menu',
       html: `<div class="lista-botones">${items.map(([t, h]) => `<button class="btn sec ancho" data-h="${h}">${t}</button>`).join('')}
@@ -191,6 +191,28 @@
     barra();
     if (location.hash === '#/inicio') ruta();
     else location.hash = '#/inicio';
+    // Cuenta creada por el admin con contraseña temporal: pedir una propia
+    ENG.API.contrasenaTemporal().then((t) => t && pedirContrasenaNueva()).catch(() => {});
+  }
+
+  function pedirContrasenaNueva() {
+    ENG.modal({
+      titulo: '🔒 Pon tu propia contraseña',
+      cerrable: false,
+      html: `<p>Entraste con una contraseña temporal. Elige una nueva que solo tú sepas.</p>
+        <label class="campo"><span>Nueva contraseña (mínimo 8)</span><input id="np-1" type="password" autocomplete="new-password"></label>
+        <label class="campo"><span>Repítela</span><input id="np-2" type="password" autocomplete="new-password"></label>`,
+      botones: [{
+        txt: 'Guardar', clase: 'pri',
+        fn: async (fondo) => {
+          const a = fondo.querySelector('#np-1').value, b = fondo.querySelector('#np-2').value;
+          if (a.length < 8) { ENG.toast('Usa al menos 8 caracteres', 'mal'); return false; }
+          if (a !== b) { ENG.toast('No coinciden', 'mal'); return false; }
+          try { await ENG.API.cambiarContrasena(a); ENG.toast('¡Listo! Ya tienes tu contraseña ✔', 'ok'); }
+          catch (e) { ENG.toast(e.message, 'mal'); return false; }
+        }
+      }]
+    });
   }
 
   ENG.recargarEstado = async (silencioso) => {
@@ -293,6 +315,9 @@
           if (partes[1] === 'preguntas') return ENG.Editor.vista();
           if (partes[1] === 'clase') return ENG.Clase.host();
           if (partes[1] === 'importar') return ENG.Importar.vista();
+          if (partes[1] === 'examenes') return ENG.Examenes.vista();
+          if (partes[1] === 'reportes') return ENG.Reportes.vista();
+          if (partes[1] === 'respaldo') return ENG.Respaldo.vista();
           return ENG.VistasMaestro.panel();
         case 'entrar':
           return (location.hash = '#/inicio');
@@ -311,7 +336,12 @@
     ENG.API.init();
     ENG.Banco.init();
     ENG.Banco.agregarExtra(ENG.ls.get('eng_extra', []));
-    if (ENG.API.modo === 'supabase' || ENG.API.modo === 'demo') ENG.cargarExtras().catch(() => {});
+    ENG.Banco.ponerOcultas(ENG.ls.get('eng_ocultas', []));
+    if (ENG.API.modo === 'supabase' || ENG.API.modo === 'demo') {
+      ENG.cargarExtras().catch(() => {});
+      ENG.cargarOcultas().catch(() => {});
+      ENG.latidoDiario();
+    }
     if (ENG.API.modo === 'sin-config' || ENG.API.modo === 'sin-libreria') {
       barra();
       app().innerHTML = `<section class="card centro">

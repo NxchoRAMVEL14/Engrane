@@ -56,6 +56,7 @@
     preguntas: {}, // id → pregunta
     temas: {}, // id → tema
     porMateria: {}, // materia → [temas]
+    ocultas: new Set(), // preguntas que un maestro ocultó mientras se corrigen
     listo: false,
     init() {
       if (Banco.listo) return;
@@ -72,12 +73,23 @@
             }
           });
           delete tema.q;
+          tema._todas = tema.preguntas;
           Banco.temas[tema.id] = tema;
           Banco.porMateria[mid].push(tema);
         });
       }
       Banco.listo = true;
+      Banco.refiltrar();
     },
+    // tema.preguntas = todas las preguntas del tema menos las ocultas
+    refiltrar() {
+      Object.values(Banco.temas).forEach((t) => (t.preguntas = (t._todas || []).filter((p) => !Banco.ocultas.has(p.id))));
+    },
+    ponerOcultas(ids) {
+      Banco.ocultas = new Set(ids || []);
+      Banco.refiltrar();
+    },
+    visible: (pid) => !!Banco.preguntas[pid] && !Banco.ocultas.has(pid),
     temasDe(mid, sub) {
       return (Banco.porMateria[mid] || []).filter((t) => !sub || t.sub === sub);
     },
@@ -89,7 +101,7 @@
     },
     // Preguntas que agregan los maestros desde la app (id: tema-x123)
     agregarExtra(lista) {
-      Object.values(Banco.temas).forEach((t) => (t.preguntas = t.preguntas.filter((p) => !p.extra)));
+      Object.values(Banco.temas).forEach((t) => (t._todas = (t._todas || []).filter((p) => !p.extra)));
       Object.keys(Banco.preguntas).forEach((k) => Banco.preguntas[k].extra && delete Banco.preguntas[k]);
       (lista || []).forEach((x) => {
         const tema = Banco.temas[x.tema];
@@ -99,9 +111,10 @@
           if (!p) return;
           p.extra = true;
           Banco.preguntas[p.id] = p;
-          tema.preguntas.push(p);
+          tema._todas.push(p);
         } catch (e) {}
       });
+      Banco.refiltrar();
     }
   };
 

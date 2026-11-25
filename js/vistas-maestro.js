@@ -38,19 +38,27 @@
         <button class="m-tab" data-r="#/m/misiones">🎯 Misiones</button>
         <button class="m-tab" data-r="#/m/recordatorios">🔔 Recordatorios</button>
         <button class="m-tab" data-r="#/m/avisos">📣 Avisos</button>
+        <button class="m-tab" data-r="#/m/examenes">📅 Exámenes</button>
+        <button class="m-tab" data-r="#/m/reportes" id="m-tab-reportes">⚑ Reportes</button>
         <button class="m-tab" data-r="#/m/preguntas">✏️ Mis preguntas</button>
         <button class="m-tab" data-r="#/m/contenido">📚 Contenido</button>
         <button class="m-tab" data-r="#/ranking">🏁 Ranking</button>
-        ${esAdmin() ? `<button class="m-tab" data-r="#/m/importar">📥 Importar</button><button class="m-tab" data-r="#/m/maestros" id="m-tab-maestros">👩‍🏫 Maestros</button>` : ''}
+        ${esAdmin() ? `<button class="m-tab" data-r="#/m/importar">📥 Importar</button><button class="m-tab" data-r="#/m/maestros" id="m-tab-maestros">👩‍🏫 Maestros</button><button class="m-tab" data-r="#/m/respaldo">💾 Respaldo</button>` : ''}
         <button class="m-tab" id="m-exportar">⬇️ Exportar avance</button>
         <button class="m-tab" data-r="#/m/cuenta">👤 Mi cuenta</button>
       </div>
+      <div id="m-aviso-respaldo"></div>
       <h3 class="sec-tit">Alumnos</h3>
       <div id="m-lista">${ENG.cargandoHTML()}</div>`;
     app().querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => (location.hash = b.dataset.r)));
     const bn = document.getElementById('m-nuevo');
     if (bn) bn.onclick = () => (location.hash = '#/m/nuevo');
     document.getElementById('m-exportar').onclick = () => ENG.Importar.exportar();
+    ENG.Respaldo.aviso(document.getElementById('m-aviso-respaldo'));
+    ENG.Reportes.contarAbiertos().then((n) => {
+      const t = document.getElementById('m-tab-reportes');
+      if (t && n) t.innerHTML += ` <span class="badge">${n}</span>`;
+    });
     try {
       const { alumnos, r } = await cargarAlumnos();
       const lista = document.getElementById('m-lista');
@@ -346,22 +354,51 @@
   async function maestros() {
     if (!esAdmin()) return (location.hash = '#/inicio');
     app().innerHTML = `<button class="volver" id="v-volver">‹ Panel</button><h1 class="tit">👩‍🏫 Maestros</h1>
-      <p class="ayuda-txt">Invita a un maestro con su correo: le llega un enlace para poner su contraseña y entra ya aprobado con las materias que elijas. Solo verá a los alumnos que practican esas materias, sin sus códigos.</p>
+      <p class="ayuda-txt">Crea la cuenta del maestro con su correo y sus materias. Engrane le hace una <b>contraseña temporal</b> que tú le mandas por WhatsApp; la primera vez que entre, pondrá la suya. Solo verá a los alumnos que practican esas materias, sin sus códigos.</p>
       <form class="card form" id="f-inv" onsubmit="return false">
-        <div class="dos-col"><label class="campo"><span>Nombre</span><input id="inv-nom" placeholder="Ej. Teacher Ana"></label><label class="campo"><span>Correo</span><input id="inv-mail" type="email"></label></div>
+        <div class="dos-col"><label class="campo"><span>Nombre</span><input id="inv-nom" placeholder="Ej. Teacher Ana"></label><label class="campo"><span>Correo</span><input id="inv-mail" type="email" placeholder="correo@ejemplo.com"></label></div>
+        <label class="campo"><span>WhatsApp del maestro (opcional)</span><input id="inv-tel" inputmode="tel" placeholder="10 dígitos"></label>
         <div class="checks">${opcionesMaterias([], false)}</div>
-        <button class="btn pri" id="inv-ok">✉️ Invitar</button>
-        <p class="peq">Si el correo no llega (Supabase manda pocos correos por hora), créalo tú en Supabase → Authentication → Users → Add user, y que entre con «Soy maestro → Entrar»; aparecerá aquí para aprobarlo.</p>
+        <button class="btn pri" id="inv-crear">🔑 Crear cuenta</button>
+        <button class="btn fant" id="inv-ok">✉️ Mejor mandar invitación por correo</button>
+        <p class="peq">El correo de Supabase solo llega a los correos de tu equipo de Supabase (máximo 2 por hora); por eso conviene «Crear cuenta». Si el maestro ya tenía cuenta o invitación, se le pone una contraseña temporal nueva.</p>
       </form>
       <div id="mm-lista">${ENG.cargandoHTML()}</div>`;
     document.getElementById('v-volver').onclick = () => (location.hash = '#/inicio');
-    document.getElementById('inv-ok').onclick = async () => {
+    const datosForm = () => {
       const f = document.getElementById('f-inv');
-      const correo = document.getElementById('inv-mail').value.trim();
-      if (!correo) return ENG.toast('Escribe el correo', 'mal');
+      return { correo: document.getElementById('inv-mail').value.trim(), nombre: document.getElementById('inv-nom').value.trim(), materias: leerChecks(f), tel: document.getElementById('inv-tel').value };
+    };
+    document.getElementById('inv-crear').onclick = async (ev) => {
+      const d = datosForm();
+      if (!d.correo) return ENG.toast('Escribe el correo', 'mal');
+      if (!d.materias.length) return ENG.toast('Elige al menos una materia', 'mal');
+      ev.target.disabled = true;
       try {
-        const r = await ENG.API.funcion({ action: 'invitar', correo, nombre: document.getElementById('inv-nom').value.trim(), materias: leerChecks(f), url: ENG.urlApp() });
-        ENG.toast(r.demo ? 'En demo no se mandan correos' : 'Invitación enviada ✔', 'ok');
+        const r = await ENG.API.funcion({ action: 'crear_maestro', correo: d.correo, nombre: d.nombre, materias: d.materias });
+        const nombres = d.materias.map((m) => (ENG.MATERIAS[m] ? ENG.MATERIAS[m].nombre : m)).join(', ');
+        const txt = `Hola${d.nombre ? ' ' + d.nombre.split(' ')[0] : ''} 👋 Te di acceso a *Engrane*, la app de práctica del CETAC 19 (${nombres}).\n\n` +
+          `1) Entra a: ${ENG.urlApp()}\n2) Toca «Soy maestro» → Entrar\n3) Correo: ${d.correo}\n4) Contraseña temporal: *${r.password}*\n\nAl entrar te pedirá poner tu propia contraseña.`;
+        ENG.modal({
+          titulo: r.nuevo === false ? '🔑 Contraseña temporal nueva' : '🔑 Cuenta creada',
+          html: `<p>Mándale esto al maestro. <b>Solo se muestra una vez.</b></p>
+            <div class="caja-clave"><small>Correo</small><b>${esc(d.correo)}</b><small>Contraseña temporal</small><b class="mono">${esc(r.password)}</b></div>
+            ${r.demo ? '<p class="peq">(En modo demo la contraseña no sirve: es solo de muestra.)</p>' : ''}`,
+          botones: [
+            { txt: '💬 Mandar por WhatsApp', clase: 'pri', fn: () => { ENG.whatsapp(txt, ENG.telWa(d.tel)); return false; } },
+            { txt: '📋 Copiar mensaje', clase: 'sec', fn: () => { ENG.copiar(txt); return false; } },
+            { txt: 'Listo', clase: 'fant' }
+          ]
+        });
+        maestros();
+      } catch (e) { ENG.toast(e.message, 'mal'); ev.target.disabled = false; }
+    };
+    document.getElementById('inv-ok').onclick = async () => {
+      const d = datosForm();
+      if (!d.correo) return ENG.toast('Escribe el correo', 'mal');
+      try {
+        const r = await ENG.API.funcion({ action: 'invitar', correo: d.correo, nombre: d.nombre, materias: d.materias, url: ENG.urlApp() });
+        ENG.toast(r.demo ? 'En demo no se mandan correos' : 'Invitación enviada ✔ (si no llega, usa «Crear cuenta»)', 'ok');
         maestros();
       } catch (e) { ENG.toast(e.message, 'mal'); }
     };
@@ -422,6 +459,9 @@
         <button class="btn pri" id="c-guardar">Guardar</button>
       </div>
       <div id="c-push"></div>
+      ${ENG.API.modo === 'demo' ? '' : `<form class="card form" id="f-pass" onsubmit="return false"><b>🔒 Cambiar contraseña</b>
+        <label class="campo"><span>Nueva contraseña (mínimo 8)</span><input id="c-pass" type="password" autocomplete="new-password"></label>
+        <button class="btn sec" id="c-pass-ok">Cambiar</button></form>`}
       <div class="card"><label class="check"><input type="checkbox" id="c-sonido" ${ENG.sonidoActivo() ? 'checked' : ''}><span>Sonidos de la app</span></label></div>
       <button class="btn sec ancho" id="c-salir">Cerrar sesión</button>
       <p class="pie-nota">Engrane v${ENG.VERSION} · ${ENG.API.modo === 'demo' ? 'modo demo' : 'conectado a Supabase'}</p>`;
@@ -433,6 +473,12 @@
       } catch (e) { ENG.toast(e.message, 'mal'); }
     };
     document.getElementById('c-sonido').onchange = (e) => ENG.ls.set('eng_sonido', e.target.checked);
+    const bp = document.getElementById('c-pass-ok');
+    if (bp) bp.onclick = async () => {
+      const v = document.getElementById('c-pass').value;
+      if (v.length < 8) return ENG.toast('Usa al menos 8 caracteres', 'mal');
+      try { await ENG.API.cambiarContrasena(v); ENG.toast('Contraseña cambiada ✔', 'ok'); document.getElementById('c-pass').value = ''; } catch (e) { ENG.toast(e.message, 'mal'); }
+    };
     document.getElementById('c-salir').onclick = () => ENG.cerrarSesion();
     ENG.Push.pintar(document.getElementById('c-push'), 'maestro', null, { forzar: true });
   }
