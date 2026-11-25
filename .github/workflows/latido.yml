@@ -1,0 +1,16 @@
+# Engrane · Latido: cada 2 días toca la base de datos para que Supabase (plan gratis) no pause el proyecto.
+# Si GitHub lo desactiva tras 60 días sin cambios en el repositorio, entra a Actions → «Latido Engrane» → Enable.
+name: Latido Engrane
+on:
+  schedule:
+    - cron: '23 15 */2 * *'   # 9:23 am hora del centro de México, cada 2 días
+  workflow_dispatch: {}        # botón «Run workflow» para probarlo a mano
+jobs:
+  latido:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a eng_latido
+        run: |
+          curl -sS --fail -X POST "https://lkhgxvokjbymgerkyxrz.supabase.co/rest/v1/rpc/eng_latido" \
+            -H "apikey: sb_publishable_Hh0dHh233fCpTO_e5A76Vg_nMoi6pKt" \
+            -H "Content-Type: application/json" -d '{}'
