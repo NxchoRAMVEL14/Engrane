@@ -1,12 +1,13 @@
 // ENGRANE · service worker: la app abre y funciona aunque no haya internet
 // Cada vez que subas cambios, sube también este archivo con un número de versión nuevo.
-const VERSION = 'engrane-v2.2.0';
+const VERSION = 'engrane-v2.4.0';
 const ARCHIVOS = [
   './', 'index.html', 'config.js', 'manifest.webmanifest', 'css/engrane.css',
   'js/util.js', 'js/apodos.js', 'js/api.js', 'js/progreso.js', 'js/figuras.js', 'js/motor.js',
-  'js/vistas-alumno.js', 'js/vistas-papas.js', 'js/vistas-maestro.js', 'js/fase2.js', 'js/editor.js', 'js/clase.js', 'js/tanda1.js', 'js/app.js',
+  'js/vistas-alumno.js', 'js/vistas-papas.js', 'js/vistas-maestro.js', 'js/fase2.js', 'js/editor.js', 'js/clase.js', 'js/tanda1.js', 'js/tanda2.js', 'js/tanda3.js', 'js/app.js',
   'contenido/catalogo.js', 'contenido/ingles3.js', 'contenido/modulo2.js', 'contenido/lengua3.js', 'contenido/matematico3.js',
   'contenido/ciencias3.js', 'contenido/filosofico2.js',
+  'contenido/ingles4.js', 'contenido/modulo3.js', 'contenido/matematico4.js', 'contenido/ciencias4.js', 'contenido/sociales3.js', 'contenido/historica1.js',
   'img/favicon.png', 'img/logo-app.png', 'img/icon-192.png', 'img/icon-512.png'
 ];
 const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';

@@ -85,12 +85,12 @@
       clase: 'ancho',
       html: `<form class="form" id="f-ed" onsubmit="return false">
         <label class="campo"><span>Tema</span><select id="e-tema">${temas.map((t) => `<option value="${t.id}" ${t.id === x.tema ? 'selected' : ''}>${t.sub ? t.sub.toUpperCase() + ' · ' : ''}${esc(t.nombre)}</option>`).join('')}</select></label>
-        <label class="campo"><span>Tipo</span><select id="e-tipo">${TIPOS.filter(([k]) => k !== 'ha' || x.materia === 'ingles3').map(([k, t]) => `<option value="${k}" ${k === tipo0 ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label class="campo"><span>Tipo</span><select id="e-tipo">${TIPOS.filter(([k]) => k !== 'ha' || /^ingles/.test(x.materia)).map(([k, t]) => `<option value="${k}" ${k === tipo0 ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <label class="campo"><span id="e-q-et">Pregunta</span><textarea id="e-q" rows="2" placeholder="Usa ___ para un hueco y **así** para negritas">${esc(q0)}</textarea></label>
         <div id="e-campos"></div>
         <label class="campo"><span>Explicación (se muestra al contestar)</span><textarea id="e-exp" rows="2">${esc(exp0 || '')}</textarea></label>
         <div class="dos-col"><label class="campo"><span>Dificultad</span><select id="e-n"><option value="1" ${(extra0.n || 1) === 1 ? 'selected' : ''}>Básica</option><option value="2" ${extra0.n === 2 ? 'selected' : ''}>Media</option><option value="3" ${extra0.n === 3 ? 'selected' : ''}>Difícil</option></select></label>
-        ${x.materia === 'ingles3' ? `<label class="campo"><span>Audio (texto en inglés que se lee en voz alta, opcional)</span><input id="e-audio" value="${esc(extra0.audio || '')}"></label>` : ''}</div>
+        ${/^ingles/.test(x.materia) ? `<label class="campo"><span>Audio (texto en inglés que se lee en voz alta, opcional)</span><input id="e-audio" value="${esc(extra0.audio || '')}"></label>` : ''}</div>
       </form>`,
       botones: [{ txt: 'Cancelar' }, { txt: 'Guardar', clase: 'pri', fn: async (el) => {
         try {

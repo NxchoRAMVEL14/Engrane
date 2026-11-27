@@ -47,8 +47,51 @@
       id: 'filosofico2', nombre: 'Pensamiento Filosófico y Hum. II', titulo: 'Las reflexiones filosóficas sobre el Conocer', semestre: 3, aprobatoria: 6,
       color: '#C0392B', icono: '🧠', disponible: true,
       fuente: 'SEP · MCCEMS Modelo Educativo 2025 · Pensamiento Filosófico y Humanidades II · 5 propósitos formativos'
+    },
+    // ─────────── 4° semestre ───────────
+    ingles4: {
+      id: 'ingles4', nombre: 'Inglés IV', titulo: 'Should I Stay or Should I Go?', semestre: 4, aprobatoria: 6,
+      color: '#3B5BDB', icono: '🗣️', disponible: true,
+      fuente: 'SEP · MCC Modelo Educativo 2025 · Inglés IV (A2+) «Should I Stay or Should I Go?» · 8 propósitos formativos'
+    },
+    modulo3: {
+      id: 'modulo3', nombre: 'Módulo III', titulo: 'Programa dispositivos de control', semestre: 4, aprobatoria: 7,
+      color: '#D9480F', icono: '🎛️', disponible: true,
+      fuente: 'SEP · Programa de estudios Técnico en Mecatrónica (junio 2024) · Módulo III «Programa dispositivos de control» (272 h)',
+      subs: [
+        { id: 's1', corto: 'S1', nombre: 'Instala elementos de potencia y control', horas: 96 },
+        { id: 's2', corto: 'S2', nombre: 'Programa controladores lógicos', horas: 96 },
+        { id: 's3', corto: 'S3', nombre: 'Programa sistemas embebidos', horas: 80 }
+      ]
+    },
+    matematico4: {
+      id: 'matematico4', nombre: 'Pensamiento Matemático IV', titulo: 'Trigonometría y geometría analítica', semestre: 4, aprobatoria: 6,
+      color: '#087F5B', icono: '📏', disponible: true,
+      fuente: 'SEP · MCC Modelo Educativo 2025 · Pensamiento Matemático IV · 7 propósitos formativos'
+    },
+    ciencias4: {
+      id: 'ciencias4', nombre: 'Ciencias Naturales IV', titulo: 'El poder de la química', semestre: 4, aprobatoria: 6,
+      color: '#5C940D', icono: '⚗️', disponible: true,
+      fuente: 'SEP · MCC Modelo Educativo 2025 · Ciencias Naturales, Experimentales y Tecnología IV «El poder de la química» · 8 propósitos formativos'
+    },
+    sociales3: {
+      id: 'sociales3', nombre: 'Ciencias Sociales III', titulo: 'Las dinámicas de la realidad actual', semestre: 4, aprobatoria: 6,
+      color: '#E67700', icono: '🏛️', disponible: true,
+      fuente: 'SEP · MCC Modelo Educativo 2025 · Ciencias Sociales III «Las dinámicas de la realidad actual: la condición estudiantil al centro» · 3 propósitos formativos'
+    },
+    historica1: {
+      id: 'historica1', nombre: 'Conciencia Histórica I', titulo: 'Coordenadas de la Historia', semestre: 4, aprobatoria: 6,
+      color: '#862E9C', icono: '⏳', disponible: true,
+      fuente: 'SEP · MCC Modelo Educativo 2025 · Conciencia Histórica I «Coordenadas de la Historia» · 4 propósitos formativos'
     }
   };
+  // Agrupa materias por semestre: [[3, [m,…]], [4, [m,…]]]
+  ENG.porSemestre = (lista) => {
+    const g = {};
+    (lista || Object.values(ENG.MATERIAS)).forEach((m) => { (g[m.semestre || 0] = g[m.semestre || 0] || []).push(m); });
+    return Object.keys(g).map(Number).sort((a, b) => a - b).map((s) => [s, g[s]]);
+  };
+  ENG.nombreSemestre = (s) => (s ? `${s}° semestre` : 'Otras');
   ENG.CONTENIDO = ENG.CONTENIDO || {};
 
   // ── Banco: convierte el contenido compacto en objetos listos para usar ──

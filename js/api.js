@@ -215,6 +215,8 @@
     reporteResolver: (pregunta, resuelto) => rpc('eng_reporte_resolver', { p_pregunta: pregunta, p_resuelto: resuelto !== false }),
     preguntaOcultar: (pregunta, materia, ocultar, motivo) => rpc('eng_pregunta_ocultar', { p_pregunta: pregunta, p_materia: materia, p_ocultar: ocultar !== false, p_motivo: motivo || '' }),
     ocultas: () => rpc('eng_ocultas'),
+    // ── Tanda 3 (v2.4) ──
+    analisis: (materia, grupo) => rpc('eng_analisis', { p_materia: materia, p_grupo: grupo || '' }),
     // ¿La cuenta del maestro trae contraseña temporal? (la crea el admin)
     async contrasenaTemporal() {
       if (modo === 'demo' || !sb) return false;
@@ -552,6 +554,28 @@
         return { ok: true };
       },
       eng_ocultas: () => tabla(db(), 'ocultas').map((o) => o.pregunta),
+      eng_analisis: ({ p_materia, p_grupo }) => {
+        const d = db();
+        if (!d.sesion) err('SIN_ACCESO');
+        const als = d.alumnos.filter((a) => a.activo && a.materias.includes(p_materia) && (!p_grupo || a.grupo === p_grupo));
+        const ids = new Set(als.map((a) => a.id));
+        const es = d.estado.filter((e) => ids.has(e.alumno_id) && e.m === p_materia);
+        const temaDe = (pid) => pid.replace(/-[^-]*$/, '');
+        const T = {};
+        const P = {};
+        es.forEach((e) => {
+          const k = e.alumno_id + '|' + temaDe(e.p);
+          T[k] = T[k] || { a: e.alumno_id, t: temaDe(e.p), ac: 0, fa: 0 };
+          T[k].ac += e.a; T[k].fa += e.f;
+          P[e.p] = P[e.p] || { p: e.p, ac: 0, fa: 0, alumnos: 0, pendientes: 0 };
+          P[e.p].ac += e.a; P[e.p].fa += e.f; P[e.p].alumnos += e.f > 0 ? 1 : 0; P[e.p].pendientes += e.c === 1 ? 1 : 0;
+        });
+        return {
+          alumnos: als.map((a) => ({ id: a.id, nombre: a.nombre, grupo: a.grupo })).sort((x, y) => x.nombre.localeCompare(y.nombre)),
+          temas: Object.values(T),
+          preguntas: Object.values(P).filter((x) => x.fa > 0).sort((x, y) => y.fa - x.fa || y.alumnos - x.alumnos).slice(0, 60)
+        };
+      },
       eng_push_guardar: () => ({ ok: true }),
       eng_push_guardar_maestro: () => ({ ok: true }),
       eng_push_quitar: () => ({ ok: true }),

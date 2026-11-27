@@ -61,8 +61,9 @@
 
       <h3 class="sec-tit">Mis materias</h3>
       <div class="grid-materias">
-        ${materias.map((mid) => tarjetaMateria(mid)).join('') || '<p class="vacio">Tu profe todavía no te asigna materias.</p>'}
+        ${gruposMaterias(materias) || '<p class="vacio">Tu profe todavía no te asigna materias.</p>'}
       </div>
+      <button class="card mini-card ancho-c" id="ir-lab"><span class="mini-ico">🧪</span><b>Laboratorio virtual</b><small>Neumática, fuerza de cilindros y PLC en escalera</small></button>
 
       <div class="dos-col">
         <button class="card mini-card" id="ir-ranking"><span class="mini-ico">🏁</span><b>Ranking semanal</b><small>Con apodos</small></button>
@@ -94,8 +95,17 @@
       };
     });
     document.getElementById('ir-ranking').onclick = () => (location.hash = '#/ranking');
+    document.getElementById('ir-lab').onclick = () => (location.hash = '#/lab');
     document.getElementById('ir-insignias').onclick = document.getElementById('ir-insignias2').onclick = () => (location.hash = '#/insignias');
     revelarApodo();
+  }
+
+  // Si el alumno tiene materias de varios semestres, se separan con un título
+  function gruposMaterias(ids) {
+    const ms = ids.filter((id) => ENG.MATERIAS[id]).map((id) => ENG.MATERIAS[id]);
+    const g = ENG.porSemestre(ms);
+    if (g.length < 2) return ms.map((m) => tarjetaMateria(m.id)).join('');
+    return g.map(([sem, lista]) => `<div class="sem-tit full">${ENG.nombreSemestre(sem)}</div>${lista.map((m) => tarjetaMateria(m.id)).join('')}`).join('');
   }
 
   function tarjetaMateria(mid) {

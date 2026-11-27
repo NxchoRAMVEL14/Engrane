@@ -1,7 +1,7 @@
 // ENGRANE · utilidades comunes
 (function () {
   const ENG = (window.ENG = window.ENG || {});
-  ENG.VERSION = '2.2.0';
+  ENG.VERSION = '2.4.0';
   const TZ = 'America/Mexico_City';
 
   ENG.$ = (sel, root = document) => root.querySelector(sel);
@@ -198,7 +198,7 @@
     }
     return 'M' + pts.map(([r, a]) => `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`).join('L') + 'Z';
   };
-  ENG.engraneSVG = ({ tam = 56, color = 'var(--naranja)', centro = 'var(--tinta)', texto = '', dientes = 10, clase = '' } = {}) => {
+  ENG.engraneSVG = ({ tam = 56, color = 'var(--naranja)', centro = 'var(--centro-engrane, #0f1e2e)', texto = '', dientes = 10, clase = '' } = {}) => {
     const r = 50;
     return `<svg class="engrane-svg ${clase}" viewBox="0 0 100 100" width="${tam}" height="${tam}" aria-hidden="true">
       <path d="${ENG.rutaEngrane(r, r, 49, 39, dientes)}" fill="${color}"/>

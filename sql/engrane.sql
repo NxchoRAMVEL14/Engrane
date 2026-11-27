@@ -1067,6 +1067,44 @@ language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(pregunta), '[]'::jsonb) from eng_preguntas_ocultas
 $$;
 
+
+-- ─────────────────────────── TANDA 3 (v2.4): ANÁLISIS DEL GRUPO ───────────────────────────
+-- Mapa de calor (alumno × tema) y preguntas más falladas, a partir del cuaderno de repaso
+-- (eng_preguntas_estado acumula aciertos y fallos de cada pregunta contestada por cada alumno).
+create or replace function public.eng_analisis(p_materia text, p_grupo text default '') returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_mat text[] := eng__mis_materias();
+  v_g   text := coalesce(p_grupo, '');
+begin
+  if not eng__es_staff() then raise exception 'SIN_ACCESO'; end if;
+  if v_mat is not null and not (p_materia = any(v_mat)) then raise exception 'SIN_ACCESO'; end if;
+  return jsonb_build_object(
+    'alumnos', coalesce((
+      select jsonb_agg(jsonb_build_object('id', a.id, 'nombre', a.nombre, 'grupo', a.grupo) order by a.nombre)
+        from eng_alumnos a
+       where a.activo and p_materia = any(a.materias) and (v_g = '' or a.grupo = v_g)), '[]'::jsonb),
+    'temas', coalesce((
+      select jsonb_agg(jsonb_build_object('a', x.alumno_id, 't', x.tema, 'ac', x.ac, 'fa', x.fa))
+        from (select e.alumno_id, regexp_replace(e.pregunta, '-[^-]*$', '') as tema,
+                     sum(e.aciertos)::int as ac, sum(e.fallos)::int as fa
+                from eng_preguntas_estado e join eng_alumnos a on a.id = e.alumno_id
+               where e.materia = p_materia and a.activo and p_materia = any(a.materias) and (v_g = '' or a.grupo = v_g)
+               group by 1, 2) x), '[]'::jsonb),
+    'preguntas', coalesce((
+      select jsonb_agg(jsonb_build_object('p', y.pregunta, 'ac', y.ac, 'fa', y.fa, 'alumnos', y.alumnos, 'pendientes', y.pendientes)
+                       order by y.fa desc, y.alumnos desc)
+        from (select e.pregunta, sum(e.aciertos)::int as ac, sum(e.fallos)::int as fa,
+                     count(*) filter (where e.fallos > 0)::int as alumnos,
+                     count(*) filter (where e.caja = 1)::int as pendientes
+                from eng_preguntas_estado e join eng_alumnos a on a.id = e.alumno_id
+               where e.materia = p_materia and a.activo and p_materia = any(a.materias) and (v_g = '' or a.grupo = v_g)
+               group by e.pregunta
+              having sum(e.fallos) > 0
+               order by sum(e.fallos) desc
+               limit 60) y), '[]'::jsonb));
+end $$;
+
 -- ─────────────────────────── PERMISOS ───────────────────────────
 
 grant usage on schema public to anon, authenticated;
@@ -1148,7 +1186,8 @@ begin
   foreach f in array array[
     'eng_sistema_estado()', 'eng_respaldo()', 'eng_restaurar(jsonb)',
     'eng_examen_guardar(bigint, text, text, date, int, text[], text, uuid[])', 'eng_examen_borrar(bigint)', 'eng_examenes_listar()',
-    'eng_reportes_listar()', 'eng_reporte_resolver(text, boolean)', 'eng_pregunta_ocultar(text, text, boolean, text)'] loop
+    'eng_reportes_listar()', 'eng_reporte_resolver(text, boolean)', 'eng_pregunta_ocultar(text, text, boolean, text)',
+    'eng_analisis(text, text)'] loop
     execute format('revoke execute on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated', f);
   end loop;

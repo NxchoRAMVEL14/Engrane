@@ -48,18 +48,20 @@
   function menu() {
     const c = ENG.ctx;
     const items = [];
-    if (c.rol === 'alumno') items.push(['🏠 Inicio', '#/inicio'], ['🔴 Clase en vivo', '#/clase'], ['🏅 Insignias y niveles', '#/insignias'], ['🏁 Ranking', '#/ranking']);
-    if (c.rol === 'papas') items.push(['📈 Reporte', '#/inicio'], ['🏁 Ranking', '#/ranking']);
-    if (c.rol === 'maestro') items.push(['👥 Alumnos', '#/inicio'], ['🔴 Clase en vivo', '#/m/clase'], ['🎯 Misiones', '#/m/misiones'], ['🔔 Recordatorios', '#/m/recordatorios'], ['📣 Avisos', '#/m/avisos'], ['📅 Exámenes', '#/m/examenes'], ['⚑ Reportes', '#/m/reportes'], ['✏️ Mis preguntas', '#/m/preguntas'], ['📚 Contenido', '#/m/contenido'], ...(c.perfil && c.perfil.rol === 'admin' ? [['📥 Importar', '#/m/importar'], ['👩‍🏫 Maestros', '#/m/maestros'], ['💾 Respaldo', '#/m/respaldo']] : []), ['🏁 Ranking', '#/ranking'], ['👤 Mi cuenta', '#/m/cuenta']);
+    if (c.rol === 'alumno') items.push(['🏠 Inicio', '#/inicio'], ['🔴 Clase en vivo', '#/clase'], ['🧪 Laboratorio', '#/lab'], ['🏅 Insignias y niveles', '#/insignias'], ['🏁 Ranking', '#/ranking'], ['❓ Ayuda', '#/ayuda']);
+    if (c.rol === 'papas') items.push(['📈 Reporte', '#/inicio'], ['🏁 Ranking', '#/ranking'], ['❓ Ayuda', '#/ayuda']);
+    if (c.rol === 'maestro') items.push(['👥 Alumnos', '#/inicio'], ['🔴 Clase en vivo', '#/m/clase'], ['🎯 Misiones', '#/m/misiones'], ['🔔 Recordatorios', '#/m/recordatorios'], ['📣 Avisos', '#/m/avisos'], ['📅 Exámenes', '#/m/examenes'], ['📊 Análisis del grupo', '#/m/analisis'], ['🖨️ Hojas para imprimir', '#/m/hojas'], ['⚑ Reportes', '#/m/reportes'], ['✏️ Mis preguntas', '#/m/preguntas'], ['📚 Contenido', '#/m/contenido'], ['🧪 Laboratorio', '#/lab'], ...(c.perfil && c.perfil.rol === 'admin' ? [['📥 Importar', '#/m/importar'], ['📅 Cambio de semestre', '#/m/semestre'], ['👩‍🏫 Maestros', '#/m/maestros'], ['💾 Respaldo', '#/m/respaldo']] : []), ['🏁 Ranking', '#/ranking'], ['👤 Mi cuenta', '#/m/cuenta'], ['❓ Ayuda', '#/ayuda']);
     const md = ENG.modal({
       clase: 'menu',
       html: `<div class="lista-botones">${items.map(([t, h]) => `<button class="btn sec ancho" data-h="${h}">${t}</button>`).join('')}
         <label class="check"><input type="checkbox" id="mn-sonido" ${ENG.sonidoActivo() ? 'checked' : ''}><span>Sonidos</span></label>
+        ${ENG.Tema.selector()}
         <button class="btn fant ancho" id="mn-salir">Cerrar sesión</button></div>`,
       botones: [{ txt: 'Cerrar' }]
     });
     md.el.querySelectorAll('[data-h]').forEach((b) => (b.onclick = () => { md.cerrar(); location.hash = b.dataset.h; }));
     md.el.querySelector('#mn-sonido').onchange = (e) => ENG.ls.set('eng_sonido', e.target.checked);
+    md.el.querySelector('#mn-tema').onchange = (e) => ENG.Tema.poner(e.target.value);
     md.el.querySelector('#mn-salir').onclick = async () => {
       md.cerrar();
       if (await ENG.confirmar('¿Cerrar sesión en este dispositivo?', 'Cerrar sesión')) ENG.cerrarSesion();
@@ -269,6 +271,7 @@
       return;
     }
     ENG.Motor.detener();
+    if (ENG.Lab) ENG.Lab.detener();
     document.body.dataset.rol = c.rol || 'nadie';
     if (!(partes[0] === 'm' && partes[1] === 'clase')) document.body.classList.remove('modo-proyector');
     if (!c.rol) return pantallaEntrar();
@@ -280,10 +283,13 @@
     window.scrollTo(0, 0);
     try {
       switch (partes[0]) {
-        case 'inicio':
-          if (c.rol === 'alumno') return ENG.VistasAlumno.inicio();
-          if (c.rol === 'papas') return ENG.VistasPapas.inicio();
-          return ENG.VistasMaestro.panel();
+        case 'inicio': {
+          const r = c.rol === 'alumno' ? ENG.VistasAlumno.inicio() : c.rol === 'papas' ? ENG.VistasPapas.inicio() : ENG.VistasMaestro.panel();
+          Promise.resolve(r).then(() => ENG.Novedades.banner()).catch(() => {});
+          return r;
+        }
+        case 'ayuda':
+          return ENG.Ayuda.vista();
         case 'vista':
           if (!c.prueba) return (location.hash = '#/inicio');
           return ENG.VistasAlumno.inicio();
@@ -299,6 +305,9 @@
           return ENG.VistasAlumno.ranking();
         case 'clase':
           return ENG.Clase.alumno();
+        case 'lab':
+          if (c.rol === 'papas') return (location.hash = '#/inicio');
+          return ENG.Lab.vista();
         case 'insignias':
           if (c.rol !== 'alumno' && !c.prueba) return (location.hash = '#/inicio');
           return ENG.VistasAlumno.insignias();
@@ -318,6 +327,9 @@
           if (partes[1] === 'examenes') return ENG.Examenes.vista();
           if (partes[1] === 'reportes') return ENG.Reportes.vista();
           if (partes[1] === 'respaldo') return ENG.Respaldo.vista();
+          if (partes[1] === 'semestre') return ENG.CambioSemestre.vista();
+          if (partes[1] === 'analisis') return ENG.Analisis.vista();
+          if (partes[1] === 'hojas') return ENG.Hojas.vista();
           return ENG.VistasMaestro.panel();
         case 'entrar':
           return (location.hash = '#/inicio');

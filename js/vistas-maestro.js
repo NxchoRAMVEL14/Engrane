@@ -39,11 +39,13 @@
         <button class="m-tab" data-r="#/m/recordatorios">🔔 Recordatorios</button>
         <button class="m-tab" data-r="#/m/avisos">📣 Avisos</button>
         <button class="m-tab" data-r="#/m/examenes">📅 Exámenes</button>
+        <button class="m-tab" data-r="#/m/analisis">📊 Análisis</button>
+        <button class="m-tab" data-r="#/m/hojas">🖨️ Hojas</button>
         <button class="m-tab" data-r="#/m/reportes" id="m-tab-reportes">⚑ Reportes</button>
         <button class="m-tab" data-r="#/m/preguntas">✏️ Mis preguntas</button>
         <button class="m-tab" data-r="#/m/contenido">📚 Contenido</button>
         <button class="m-tab" data-r="#/ranking">🏁 Ranking</button>
-        ${esAdmin() ? `<button class="m-tab" data-r="#/m/importar">📥 Importar</button><button class="m-tab" data-r="#/m/maestros" id="m-tab-maestros">👩‍🏫 Maestros</button><button class="m-tab" data-r="#/m/respaldo">💾 Respaldo</button>` : ''}
+        ${esAdmin() ? `<button class="m-tab" data-r="#/m/semestre">📅 Cambio de semestre</button><button class="m-tab" data-r="#/m/importar">📥 Importar</button><button class="m-tab" data-r="#/m/maestros" id="m-tab-maestros">👩‍🏫 Maestros</button><button class="m-tab" data-r="#/m/respaldo">💾 Respaldo</button>` : ''}
         <button class="m-tab" id="m-exportar">⬇️ Exportar avance</button>
         <button class="m-tab" data-r="#/m/cuenta">👤 Mi cuenta</button>
       </div>
@@ -118,9 +120,10 @@
   }
 
   const opcionesMaterias = (marcadas = [], soloDisponibles = false) =>
-    Object.values(ENG.MATERIAS)
-      .filter((m) => !soloDisponibles || m.disponible)
-      .map((m) => `<label class="check"><input type="checkbox" value="${m.id}" ${marcadas.includes(m.id) ? 'checked' : ''}><span>${m.icono} ${esc(m.nombre)}${m.disponible ? '' : ' <small>(sin contenido aún)</small>'}</span></label>`)
+    ENG.porSemestre(Object.values(ENG.MATERIAS).filter((m) => !soloDisponibles || m.disponible))
+      .map(([sem, ms]) => `<div class="sem-tit">${ENG.nombreSemestre(sem)}</div>` + ms
+        .map((m) => `<label class="check"><input type="checkbox" value="${m.id}" ${marcadas.includes(m.id) ? 'checked' : ''}><span>${m.icono} ${esc(m.nombre)}${m.disponible ? '' : ' <small>(sin contenido aún)</small>'}</span></label>`)
+        .join(''))
       .join('');
   const leerChecks = (root) => [...root.querySelectorAll('.checks input:checked')].map((i) => i.value);
 
@@ -435,10 +438,11 @@
     const mats = Object.values(ENG.MATERIAS).filter((m) => m.disponible);
     app().innerHTML = `<button class="volver" id="v-volver">‹ Panel</button><h1 class="tit">📚 Contenido</h1>
       <p class="ayuda-txt">Todo sale de los programas oficiales de la SEP. Toca «Probar» para jugarlo como alumno (no se guarda nada).</p>
-      ${mats.map((m) => {
+      ${mats.map((m, i) => {
         const temas = ENG.Banco.temasDe(m.id);
+        const cab = i === 0 || mats[i - 1].semestre !== m.semestre ? `<h3 class="sec-tit">${ENG.nombreSemestre(m.semestre)}</h3>` : '';
         const nq = temas.reduce((s, t) => s + t.preguntas.length, 0);
-        return `<div class="card cont-mat">
+        return cab + `<div class="card cont-mat">
           <div class="mc-top"><div><b>${m.icono} ${esc(m.nombre)}</b><small>${esc(m.titulo)} · ${temas.length} temas · ${nq} preguntas</small></div><button class="btn pri" data-probar="${m.id}">Probar</button></div>
           <p class="fuente">Fuente: ${esc(m.fuente)}</p>
           <ol class="lista-cont">${temas.map((t) => `<li><b>${esc(t.nombre)}</b> <small>${t.sub ? t.sub.toUpperCase() + ' · ' : ''}${(t.leccion || []).length} tarjetas · ${t.preguntas.length} preguntas${t.pares ? ' · memorama' : ''}</small><br><small class="txt-gris">${esc(t.proposito || '')}</small></li>`).join('')}</ol>
